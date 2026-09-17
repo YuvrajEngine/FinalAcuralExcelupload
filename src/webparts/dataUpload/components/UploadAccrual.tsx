@@ -33,6 +33,7 @@ export default function UploadAccrual(props: IDataUploadProps) {
   const [isSearched, setIsSearched] = React.useState(false);
   const [validationErrors, setValidationErrors] = React.useState<any[]>([]);
   const [errors, setErrors] = React.useState<any[]>([]);
+  const [isSubmitting, setIsSubmitting] = React.useState(false);
 
   const [employee, setEmployee] = React.useState<any>({});
   const normalize = (str: string) => str.trim().toLowerCase();
@@ -101,18 +102,19 @@ export default function UploadAccrual(props: IDataUploadProps) {
 
   const requiredColumns = [
     "UserName ",
-    "Department ",
+    "Employee Cost Center ",
+    "Employee Cost Center Name ",
     "Vendor Name",
     "Vendor Code ",
     "PO Number",
     "GL Code ",
     "GL Description ",
-    "Employee Cost Center ",
-    "Employee Cost Center Name ",
     "Amount ",
     "Expense Month ",
     "Remarks (if any)",
   ];
+
+  const optionalColumns = ["Remarks (if any)"];
 
   const validateTemplate = (data: any[]) => {
     if (data.length === 0) {
@@ -121,13 +123,14 @@ export default function UploadAccrual(props: IDataUploadProps) {
     }
 
     const fileHeaders = Object.keys(data[0]).map(normalize);
-    const required = requiredColumns.map(normalize);
+    const allowed = requiredColumns.map(normalize);
+    const mandatory = requiredColumns
+      .filter((col) => !optionalColumns.includes(col))
+      .map(normalize);
 
-    // Check missing columns
-    const missing = required.filter((col) => !fileHeaders.includes(col));
+    const missing = mandatory.filter((col) => !fileHeaders.includes(col));
 
-    // Check extra columns
-    const extra = fileHeaders.filter((col) => !required.includes(col));
+    const extra = fileHeaders.filter((col) => !allowed.includes(col));
 
     if (missing.length > 0) {
       alert("Missing columns: " + missing.join(", "));
@@ -149,7 +152,6 @@ export default function UploadAccrual(props: IDataUploadProps) {
       console.log("Selected file:", selectedFile.name);
     }
 
-    // ✅ Reset input so same file can be selected again
     e.target.value = "";
   };
 
@@ -247,8 +249,6 @@ export default function UploadAccrual(props: IDataUploadProps) {
             }),
           },
         );
-        // const data = await response.json();
-        // console.log("Employee data:", data);
         if (!response.ok) {
           throw new Error("Failed to fetch employee data");
         }
@@ -256,13 +256,11 @@ export default function UploadAccrual(props: IDataUploadProps) {
         return response.json();
       };
 
-      // ✅ Current User Email
       const userEmail = props.context.pageContext.user.email.toLowerCase();
 
       let item = null;
       let page = 1;
 
-      // ✅ Paging Loop
       while (true) {
         const res = await fetchPage(page);
 
@@ -270,12 +268,10 @@ export default function UploadAccrual(props: IDataUploadProps) {
 
         item = employees.find((x: any) => x.email?.toLowerCase() === userEmail);
 
-        // ✅ Stop when found
         if (item) {
           break;
         }
 
-        // ✅ Stop if last page
         if (employees.length < 500) {
           break;
         }
@@ -288,12 +284,10 @@ export default function UploadAccrual(props: IDataUploadProps) {
         return;
       }
 
-      // ✅ Location
       const locationAttr = (item.attributes || []).find(
         (a: any) => a.attributeTypeDescription === "Location",
       );
 
-      // ✅ Department
       const departmentAttr = (item.attributes || []).find(
         (a: any) => a.attributeTypeDescription?.toLowerCase() === "department",
       );
@@ -310,7 +304,6 @@ export default function UploadAccrual(props: IDataUploadProps) {
         (a: any) => a.attributeTypeDescription?.toLowerCase() === "hod_code",
       );
 
-      // ✅ Ensure Users
       let employeeUserId = 0;
       let rmUserId = 0;
       let hodUserId = 0;
@@ -334,7 +327,6 @@ export default function UploadAccrual(props: IDataUploadProps) {
       }
       debugger;
       console.log(item);
-      // ✅ Set Employee State
       setEmployee({
         EmployeeCode: item.employeeCode || "",
 
@@ -385,9 +377,7 @@ export default function UploadAccrual(props: IDataUploadProps) {
       console.log("Before setEmployee:", employeeData);
 
       setEmployee(employeeData);
-      // console.log(employee)
 
-      // ✅ Approvers
       const userApprovers = [rmUserId, hodUserId].filter(
         (id): id is number => !!id,
       );
@@ -395,68 +385,18 @@ export default function UploadAccrual(props: IDataUploadProps) {
       const uniqueApprovers = userApprovers.filter(
         (value, index, self) => self.indexOf(value) === index,
       );
-
-      // setApprovers(uniqueApprovers);
-
-      // ✅ Build Approval Flow
-      // buildApprovalFlow(
-      //     {
-      //         RMId: rmUserId,
-      //         HODId: hodUserId,
-      //         RM: item.reportingManagerName || "",
-      //         HOD: HODName?.attributeTypeUnitDescription || ""
-      //     },
-      //     paymentType
-      // );
     } catch (error) {
       console.error("Error fetching user data:", error);
     }
   };
 
-  // const getLoggedInUser = async () => {
-  //   try {
-  //     // get logged in user
-  //     debugger;
-  //     const currentUser = await sp.web.currentUser();
-
-  //     const email = currentUser.Email;
-
-  //     const user = await sp.web.lists
-  //       .getByTitle("EmployeeMaster")
-  //       .items.select(
-  //         "EmployeeCode",
-  //         "EmployeeName",
-  //         "Division",
-  //         "Location",
-  //         "EmployeeEmail",
-  //         "ReportingManager/Title",
-  //         "HOD/Title",
-  //         "ContactNo",
-  //         "EmployeeStatus",
-  //       )
-  //       .expand("ReportingManager", "HOD")
-  //       .filter(`EmployeeEmail eq '${email}'`)
-  //       .top(1)();
-
-  //     if (user.length > 0) {
-  //       setEmployee(user[0]);
-  //     }
-
-  //     console.log(user);
-  //   } catch (error) {
-  //     console.log("Error fetching user:", error);
-  //     alert(error);
-  //   }
-  // };
   React.useEffect(() => {
     void getuserData();
   }, []);
 
   const downloadTemplate = () => {
-    // Create empty row with only headers
     const worksheet = XLSX.utils.json_to_sheet([]);
 
-    // Add headers manually
     XLSX.utils.sheet_add_aoa(worksheet, [requiredColumns]);
 
     const workbook = {
@@ -480,367 +420,18 @@ export default function UploadAccrual(props: IDataUploadProps) {
     link.download = fileName;
     link.click();
   };
-  // const submitData = async () => {
-  // if (excelData.length === 0) {
-  //   alert("No data to submit");
-  //   return;
-  // }
-
-  // const getMonthNumber = (monthName: string) => {
-  //   const months: any = {
-  //     january: 0,
-  //     february: 1,
-  //     march: 2,
-  //     april: 3,
-  //     may: 4,
-  //     june: 5,
-  //     july: 6,
-  //     august: 7,
-  //     september: 8,
-  //     october: 9,
-  //     november: 10,
-  //     december: 11,
-  //   };
-  //   return months[monthName.trim().toLowerCase()];
-  // };
-
-  // const capitalizeMonth = (month: string) => {
-  //   const m = month.trim().toLowerCase();
-  //   return m.charAt(0).toUpperCase() + m.slice(1);
-  // };
-
-  // const today = new Date();
-  // const currentMonth = today.getMonth();
-  // const currentDate = today.getDate();
-
-  // let skippedUsers: string[] = [];
-  // let skippedRows: any[] = []; // ✅ STORE FULL ROWS
-
-  // try {
-  //   for (let i = 0; i < excelData.length; i++) {
-  //     const row = excelData[i];
-  //     const username = String(row["UserName "] || "Unknown");
-
-  //     // ✅ Required validation
-  //     for (const col of requiredColumns) {
-  //       if (!row[col] || row[col].toString().trim() === "") {
-  //         alert(`Row ${i + 2}: ${col} is required`);
-  //         return;
-  //       }
-  //     }
-
-  //     // ✅ Amount validation
-  //     if (isNaN(Number(row["Amount "]))) {
-  //       alert(`Row ${i + 2}: Amount must be numeric`);
-  //       return;
-  //     }
-
-  //     const expenseMonthRaw = String(row["Expense Month "] || "");
-  //     const expenseMonthStr = capitalizeMonth(expenseMonthRaw);
-
-  //     const expMonth = getMonthNumber(expenseMonthStr.toLowerCase());
-
-  //     if (expMonth === undefined) {
-  //       skippedUsers.push(username);
-
-  //       // ✅ PUSH TO GRID
-  //       skippedRows.push({
-  //         Id: 0,
-  //         Username: username,
-  //         Department: row["Department "] || "",
-  //         VendorName: row["Vendor Name"] || "",
-  //         VendorCode: row["Vendor Code "] || "",
-  //         PONumber: row["PO Number"] || "",
-  //         GLCode: row["GL Code "] || "",
-  //         GLDescription: row["GL Description "] || "",
-  //         EmployeeCostCenter: row["Employee Cost Center "] || "",
-  //         EmployeeCostCenterName: row["Employee Cost Center Name "] || "",
-  //         Amount: Number(row["Amount "] || 0),
-  //         ExpenseMonth: expenseMonthStr,
-  //         Remarks: row["Remarks (if any)"] || "",
-  //       });
-
-  //       continue;
-  //     }
-
-  //     let isValid = false;
-
-  //     // ✅ Current month
-  //     if (expMonth === currentMonth) {
-  //       isValid = true;
-  //     }
-
-  //     // ✅ Previous month till 5th
-  //     const prevMonth = currentMonth === 0 ? 11 : currentMonth - 1;
-
-  //     if (expMonth === prevMonth && currentDate <= 5) {
-  //       isValid = true;
-  //     }
-
-  //     // ✅ Future months
-  //     if (expMonth > currentMonth) {
-  //       isValid = true;
-  //     }
-
-  //     // ❌ Skip past months
-  //     if (!isValid) {
-  //       skippedUsers.push(username);
-
-  //       // ✅ PUSH TO GRID
-  //       skippedRows.push({
-  //         Id: 0,
-  //         Username: username,
-  //         Department: row["Department "] || "",
-  //         VendorName: row["Vendor Name"] || "",
-  //         VendorCode: row["Vendor Code "] || "",
-  //         PONumber: row["PO Number"] || "",
-  //         GLCode: row["GL Code "] || "",
-  //         GLDescription: row["GL Description "] || "",
-  //         EmployeeCostCenter: row["Employee Cost Center "] || "",
-  //         EmployeeCostCenterName: row["Employee Cost Center Name "] || "",
-  //         Amount: Number(row["Amount "] || 0),
-  //         ExpenseMonth: expenseMonthStr,
-  //         Remarks: row["Remarks (if any)"] || "",
-  //       });
-
-  //       continue;
-  //     }
-
-  //     // ✅ SAVE VALID DATA
-  //     await sp.web.lists.getByTitle("AccrualSheetList").items.add({
-  //       Title: username,
-  //       Username: username,
-  //       Department: String(row["Department "] || ""),
-  //       VendorName: String(row["Vendor Name"] || ""),
-  //       VendorCode: String(row["Vendor Code "] || ""),
-  //       PONumber: String(row["PO Number"] || ""),
-  //       GLCode: String(row["GL Code "] || ""),
-  //       GLDescription: String(row["GL Description "] || ""),
-  //       EmployeeCostCenter: String(row["Employee Cost Center "] || ""),
-  //       EmployeeCostCenterName: String(
-  //         row["Employee Cost Center Name "] || ""
-  //       ),
-  //       Amount: Number(row["Amount "] || 0),
-  //       ExpenseMonth: expenseMonthStr,
-  //       Remarks: String(row["Remarks (if any)"] || ""),
-  //       Status: "Pending",
-  //     });
-  //   }
-
-  // ✅ UNIQUE USERS
-  //     const uniqueSkipped = skippedUsers.filter((v, i) => {
-  //       return skippedUsers.indexOf(v) === i;
-  //     });
-
-  //     // ✅ SHOW MESSAGE
-  //     if (uniqueSkipped.length > 0) {
-  //       alert(
-  //         `Past month data not allowed ❌\nShown in grid for correction:\n${uniqueSkipped.join(", ")}`
-  //       );
-
-  //       // ✅ SHOW SKIPPED DATA IN GRID
-  //       setData(skippedRows);
-  //       setFilteredData(skippedRows);
-  //       setIsSearched(true);
-
-  //     } else {
-  //       alert("Accrual details submitted successfully ✅");
-
-  //       // ✅ CLEAR GRID
-  //       setData([]);
-  //       setFilteredData([]);
-  //       setIsSearched(false);
-  //     }
-
-  //     setExcelData([]);
-  //     setFile(null);
-
-  //   } catch (error) {
-  //     console.log("Error:", error);
-  //     alert("Error saving data");
-  //   }
-  // };
-  // const submitData = async () => {
-
-  //   debugger;
-  //   if (excelData.length === 0) {
-  //     alert("No data to submit");
-  //     return;
-  //   }
-
-  //   const getMonthNumber = (monthName: string) => {
-  //     const months: any = {
-  //       january: 0,
-  //       february: 1,
-  //       march: 2,
-  //       april: 3,
-  //       may: 4,
-  //       june: 5,
-  //       july: 6,
-  //       august: 7,
-  //       september: 8,
-  //       october: 9,
-  //       november: 10,
-  //       december: 11,
-  //     };
-  //     return months[monthName.trim().toLowerCase()];
-  //   };
-
-  //   const capitalizeMonth = (month: string) => {
-  //     const m = month.trim().toLowerCase();
-  //     return m.charAt(0).toUpperCase() + m.slice(1);
-  //   };
-
-  //   const today = new Date();
-  //   const currentMonth = today.getMonth();
-  //   const currentDate = today.getDate();
-
-  //   let errorList: any[] = [];
-  //   let validRows: any[] = [];
-  //   let invalidRows: any[] = [];
-
-  //   for (let i = 0; i < excelData.length; i++) {
-  //     const row = excelData[i];
-  //     const rowNumber = i + 2;
-
-  //     const username = String(row["UserName "] || "").trim();
-  //     const amount = Number(row["Amount "] || 0);
-
-  //     const expenseMonthRaw = String(row["Expense Month "] || "");
-  //     const expenseMonthStr = capitalizeMonth(expenseMonthRaw);
-  //     const expMonth = getMonthNumber(expenseMonthStr);
-
-  //     let rowErrors: string[] = [];
-
-  //     // ✅ Required fields validation
-  //     for (const col of requiredColumns) {
-  //       if (!row[col] || row[col].toString().trim() === "") {
-  //         rowErrors.push(`${col} is required`);
-  //       }
-  //     }
-
-  //     // ✅ Amount validation
-  //     if (isNaN(amount)) {
-  //       rowErrors.push("Amount must be numeric");
-  //     }
-
-  //     if (amount < 0) {
-  //       rowErrors.push("Amount cannot be negative");
-  //     }
-
-  //     // ✅ Month validation
-  //     let isValidMonth = false;
-
-  //     if (expMonth !== undefined) {
-  //       if (expMonth === currentMonth) {
-  //         isValidMonth = true;
-  //       }
-
-  //       const prevMonth = currentMonth === 0 ? 11 : currentMonth - 1;
-
-  //       if (expMonth === prevMonth && currentDate <= 5) {
-  //         isValidMonth = true;
-  //       }
-
-  //       if (expMonth > currentMonth) {
-  //         isValidMonth = true;
-  //       }
-  //     }
-
-  //     if (!isValidMonth) {
-  //       rowErrors.push("Invalid Expense Month (past month not allowed)");
-  //     }
-
-  //     // ❌ If errors → push to error list + invalid grid
-  //     if (rowErrors.length > 0) {
-  //       errorList.push({
-  //         row: rowNumber,
-  //         data: {
-  //           Username: username,
-  //           Department: row["Department "] || "",
-  //           VendorName: row["Vendor Name"] || "",
-  //           VendorCode: row["Vendor Code "] || "",
-  //           PONumber: row["PO Number"] || "",
-  //           GLCode: row["GL Code "] || "",
-  //           GLDescription: row["GL Description "] || "",
-  //           EmployeeCostCenter: row["Employee Cost Center "] || "",
-  //           EmployeeCostCenterName: row["Employee Cost Center Name "] || "",
-  //           Amount: amount,
-  //           ExpenseMonth: expenseMonthStr,
-  //           Remarks: row["Remarks (if any)"] || "",
-  //         },
-  //         errors: rowErrors,
-  //       });
-  //     } else {
-  //       validRows.push({
-  //         Title: username,
-  //         Username: username,
-  //         Department: String(row["Department "] || ""),
-  //         VendorName: String(row["Vendor Name"] || ""),
-  //         VendorCode: String(row["Vendor Code "] || ""),
-  //         PONumber: String(row["PO Number"] || ""),
-  //         GLCode: String(row["GL Code "] || ""),
-  //         GLDescription: String(row["GL Description "] || ""),
-  //         EmployeeCostCenter: String(row["Employee Cost Center "] || ""),
-  //         EmployeeCostCenterName: String(
-  //           row["Employee Cost Center Name "] || "",
-  //         ),
-  //         Amount: amount,
-  //         ExpenseMonth: expenseMonthStr,
-  //         Remarks: String(row["Remarks (if any)"] || ""),
-  //         Status: "Pending",
-  //       });
-  //     }
-  //   }
-
-  //     debugger;
-
-  //   // ✅ Save VALID rows
-  //   try {
-
-  //     for (const item of validRows) {
-  //       await sp.web.lists.getByTitle("AccrualSheetList").items.add(item);
-
-  //     }
-  //   } catch (error) {
-  //     console.log("Save error:", error);
-  //     alert("Error saving valid records");
-  //   }
-
-  //   // ✅ Update UI
-  //   setErrors(errorList);
-
-  //   if (invalidRows.length > 0) {
-  //     setData(invalidRows);
-  //     setFilteredData(invalidRows);
-  //     setIsSearched(true);
-  //   } else {
-  //     setData([]);
-  //     setFilteredData([]);
-  //     setIsSearched(false);
-  //   }
-
-  //   // ✅ Final Message
-  //   if (validRows.length > 0 && errorList.length > 0) {
-  //     alert(
-  //       `✅ ${validRows.length} records saved\n❌ ${errorList.length} records failed (see below)`,
-  //     );
-  //   } else if (validRows.length > 0) {
-  //     alert("All records saved successfully ✅");
-
-  //   } else {
-  //     alert("No valid data to save ❌");
-  //   }
-
-  //   setExcelData([]);
-  //   setFile(null);
-  // };
 
   const submitData = async () => {
+    if (isSubmitting) {
+      return;
+    }
+
     if (excelData.length === 0) {
       alert("No data to submit");
       return;
     }
+
+    setIsSubmitting(true);
 
     const getMonthNumber = (monthName: string) => {
       const months: any = {
@@ -887,14 +478,16 @@ export default function UploadAccrual(props: IDataUploadProps) {
 
       let rowErrors: string[] = [];
 
-      // Required Validation
       for (const col of requiredColumns) {
+        if (col === "Remarks (if any)") {
+          continue;
+        }
+
         if (!row[col] || row[col].toString().trim() === "") {
           rowErrors.push(`${col} is required`);
         }
       }
 
-      // Amount Validation
       if (isNaN(amount)) {
         rowErrors.push("Amount must be numeric");
       }
@@ -903,7 +496,6 @@ export default function UploadAccrual(props: IDataUploadProps) {
         rowErrors.push("Amount cannot be negative");
       }
 
-      // Month Validation
       let isValidMonth = false;
 
       if (expMonth !== undefined) {
@@ -936,16 +528,15 @@ export default function UploadAccrual(props: IDataUploadProps) {
         validRows.push({
           Title: username,
           Username: username,
-          Department: String(row["Department "] || ""),
+          EmployeeCostCenter: String(row["Employee Cost Center "] || ""),
+          EmployeeCostCenterName: String(
+            row["Employee Cost Center Name "] || "",
+          ),
           VendorName: String(row["Vendor Name"] || ""),
           VendorCode: String(row["Vendor Code "] || ""),
           PONumber: String(row["PO Number"] || ""),
           GLCode: String(row["GL Code "] || ""),
           GLDescription: String(row["GL Description "] || ""),
-          EmployeeCostCenter: String(row["Employee Cost Center "] || ""),
-          EmployeeCostCenterName: String(
-            row["Employee Cost Center Name "] || "",
-          ),
           Amount: amount,
           ExpenseMonth: expenseMonthStr,
           Remarks: String(row["Remarks (if any)"] || ""),
@@ -954,38 +545,84 @@ export default function UploadAccrual(props: IDataUploadProps) {
       }
     }
 
+    const escodata = (v: any) => String(v ?? "").replace(/'/g, "''");
+
+    const buildFullKey = (item: any) =>
+      [
+        item.Username,
+        item.EmployeeCostCenter,
+        item.EmployeeCostCenterName,
+        item.VendorName,
+        item.VendorCode,
+        item.PONumber,
+        item.GLCode,
+        item.GLDescription,
+        item.Amount,
+        item.ExpenseMonth,
+        item.Remarks,
+      ]
+        .map((v) => String(v ?? "").trim().toLowerCase())
+        .join("||");
+
     try {
       const displayData: any[] = [];
 
-      // For duplicate check inside Excel
       const duplicateKeys = new Set<string>();
 
       for (const item of validRows) {
-        const key = `${item.Username}-${item.VendorCode}-${item.PONumber}`;
+        const key = buildFullKey(item);
 
         let isDuplicate = false;
 
-        // Duplicate in current Excel
         if (duplicateKeys.has(key)) {
           isDuplicate = true;
         } else {
           duplicateKeys.add(key);
         }
 
-        // Duplicate in SharePoint List
+        const filterQuery = [
+          `Username eq '${escodata(item.Username)}'`,
+          `VendorCode eq '${escodata(item.VendorCode)}'`,
+          `PONumber eq '${escodata(item.PONumber)}'`,
+          `GLCode eq '${escodata(item.GLCode)}'`,
+          `ExpenseMonth eq '${escodata(item.ExpenseMonth)}'`,
+          `Amount eq ${Number(item.Amount) || 0}`,
+        ].join(" and ");
+
         const existingItems = await sp.web.lists
           .getByTitle("AccrualSheetList")
-          .items.filter(
-            `Username eq '${item.Username.replace(/'/g, "''")}'
-          and VendorCode eq '${item.VendorCode.replace(/'/g, "''")}'
-          and PONumber eq '${item.PONumber.replace(/'/g, "''")}'`,
-          )();
+          .items.select(
+            "Username",
+            "EmployeeCostCenter",
+            "EmployeeCostCenterName",
+            "VendorName",
+            "VendorCode",
+            "PONumber",
+            "GLCode",
+            "GLDescription",
+            "Amount",
+            "ExpenseMonth",
+            "Remarks",
+          )
+          .filter(filterQuery)();
 
-        if (existingItems.length > 0) {
+        const norm = (v: any) => String(v ?? "").trim().toLowerCase();
+
+        const hasServerDuplicate = existingItems.some(
+          (existing: any) =>
+            norm(existing.EmployeeCostCenter) ===
+              norm(item.EmployeeCostCenter) &&
+            norm(existing.EmployeeCostCenterName) ===
+              norm(item.EmployeeCostCenterName) &&
+            norm(existing.VendorName) === norm(item.VendorName) &&
+            norm(existing.GLDescription) === norm(item.GLDescription) &&
+            norm(existing.Remarks) === norm(item.Remarks),
+        );
+
+        if (hasServerDuplicate) {
           isDuplicate = true;
         }
 
-        // Save record
         await sp.web.lists.getByTitle("AccrualSheetList").items.add(item);
 
         displayData.push({
@@ -1015,45 +652,32 @@ export default function UploadAccrual(props: IDataUploadProps) {
     } catch (error) {
       console.log("Save Error", error);
       alert("Error saving records");
+    } finally {
+      setIsSubmitting(false);
     }
   };
   const handleExit = () => {
-    //https://isriglobal.sharepoint.com/sites/SonaFinance/_layouts/workbench.aspx
-   // window.location.href = `${window.location.origin}/sites/SonaFinance/SitePages/Accuralsheet.aspx`;
     window.location.href = `https://sonacomstargroup.sharepoint.com/sites/RLY_Finance_UAT/SitePages/Accuralsheet.aspx`;
   };
   const exitPage1 = async () => {
-    // setExcelData([]);
-    // setFile(null);
-
-    // await getLoggedInUser(); // reload data
     window.location.href = `${window.location.origin}/sites/SonaFinance/SitePages/Accuralsheet.aspx`;
   };
   const Resetpage = () => {
     setExcelData([]);
     setFile(null);
 
-    setErrors([]); // ✅ clear validation errors
-    setData([]); // ✅ clear grid (optional but recommended)
-    setFilteredData([]); // ✅ clear filtered grid
-    setIsSearched(false); // ✅ hide table (if used)
-
-    // await getLoggedInUser();
+    setErrors([]);
+    setData([]);
+    setFilteredData([]);
+    setIsSearched(false);
   };
-
-  //   const exitPage = () => {
-  //   setExcelData([]);
-  //   setFile(null);
-  //   await getLoggedInUser();
-  //   //setPage("home"); // ✅ Redirect to home
-  // };
 
   const downloadTemplate1 = async () => {
     try {
       const files = await sp.web.lists
         .getByTitle("Accrualtemplate")
         .items.select("FileRef", "FileLeafRef", "Modified")
-        .orderBy("Modified", false) // false = descending (latest first)
+        .orderBy("Modified", false)
         .top(1)();
 
       if (files.length > 0) {
@@ -1077,9 +701,8 @@ export default function UploadAccrual(props: IDataUploadProps) {
       const sheetName = workbook.SheetNames[0];
       const sheet = workbook.Sheets[sheetName];
 
-      const data = XLSX.utils.sheet_to_json(sheet);
+      const data = XLSX.utils.sheet_to_json(sheet, { defval: "" });
 
-      // ✅ VALIDATE TEMPLATE
       const isValid = validateTemplate(data);
 
       if (!isValid) {
@@ -1088,7 +711,6 @@ export default function UploadAccrual(props: IDataUploadProps) {
         return;
       }
 
-      // ✅ Only set data if valid
       setExcelData(data);
 
       alert("File validated and uploaded successfully");
@@ -1107,7 +729,6 @@ export default function UploadAccrual(props: IDataUploadProps) {
       const fileBuffer = await file.arrayBuffer();
       const fileName = file.name;
 
-      // Upload to SharePoint
       await sp.web
         .getFolderByServerRelativePath(
           "/sites/SonaFinance/UploadAccuralTemplate",
@@ -1116,14 +737,13 @@ export default function UploadAccrual(props: IDataUploadProps) {
 
       alert("File uploaded successfully");
 
-      // Read Excel
       const workbook = XLSX.read(fileBuffer, { type: "array" });
 
       const sheetName = workbook.SheetNames[0];
 
       const sheet = workbook.Sheets[sheetName];
 
-      const data = XLSX.utils.sheet_to_json(sheet);
+      const data = XLSX.utils.sheet_to_json(sheet, { defval: "" });
 
       setExcelData(data);
     } catch (error) {
@@ -1272,41 +892,6 @@ export default function UploadAccrual(props: IDataUploadProps) {
       {excelData.length > 0 && (
         <div style={{ overflowX: "auto" }}>
           <table className="Custom-table">
-            {/* <thead>
-            <tr>
-              {Object.keys(excelData[0]).map((key) => (
-                <th
-                  key={key}
-                  style={{
-                    border: "1px solid #ccc",
-                    padding: "8px",
-                    background: "#f3f3f3",
-                  }}
-                >
-                  {key}
-                </th>
-              ))}
-            </tr>
-          </thead>
-
-          <tbody>
-            {excelData.map((row: any, index: number) => (
-              <tr key={index}>
-                {Object.values(row).map((value: any, i) => (
-                  <td
-                    key={i}
-                    style={{
-                      border: "1px solid #ccc",
-                      padding: "8px",
-                    }}
-                  >
-                    {value}
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody> */}
-
             <thead>
               <tr>
                 <th>
@@ -1409,7 +994,8 @@ export default function UploadAccrual(props: IDataUploadProps) {
                   />
                 </th>
                 <th>User</th>
-                <th>Department</th>
+                <th>Employee Cost Center</th>
+                <th>Employee Cost Center Name</th>
                 <th>Vendor</th>
                 <th>PO</th>
                 <th>Amount</th>
@@ -1431,12 +1017,13 @@ export default function UploadAccrual(props: IDataUploadProps) {
 
                   <td>{err.row}</td>
 
-                  <td>{err.data.Username}</td>
-                  <td>{err.data.Department}</td>
-                  <td>{err.data.VendorName}</td>
-                  <td>{err.data.PONumber}</td>
-                  <td>{err.data.Amount}</td>
-                  <td>{err.data.ExpenseMonth}</td>
+                  <td>{err.data["UserName "]}</td>
+                  <td>{err.data["Employee Cost Center "]}</td>
+                  <td>{err.data["Employee Cost Center Name "]}</td>
+                  <td>{err.data["Vendor Name"]}</td>
+                  <td>{err.data["PO Number"]}</td>
+                  <td>{err.data["Amount "]}</td>
+                  <td>{err.data["Expense Month "]}</td>
 
                   <td style={{ color: "red" }}>{err.errors.join(", ")}</td>
                 </tr>
@@ -1464,6 +1051,8 @@ export default function UploadAccrual(props: IDataUploadProps) {
             <thead>
               <tr>
                 <th>User</th>
+                <th>Employee Cost Center</th>
+                <th>Employee Cost Center Name</th>
                 <th>Vendor</th>
                 <th>PO Number</th>
                 <th>Amount</th>
@@ -1487,6 +1076,24 @@ export default function UploadAccrual(props: IDataUploadProps) {
                     }}
                   >
                     {row.Username}
+                  </td>
+
+                  <td
+                    style={{
+                      color: row.isDuplicate ? "red" : "black",
+                      fontWeight: row.isDuplicate ? "bold" : "normal",
+                    }}
+                  >
+                    {row.EmployeeCostCenter}
+                  </td>
+
+                  <td
+                    style={{
+                      color: row.isDuplicate ? "red" : "black",
+                      fontWeight: row.isDuplicate ? "bold" : "normal",
+                    }}
+                  >
+                    {row.EmployeeCostCenterName}
                   </td>
 
                   <td
@@ -1551,13 +1158,16 @@ export default function UploadAccrual(props: IDataUploadProps) {
           <button
             className="submit-btn"
             onClick={submitData}
-            disabled={excelData.length === 0}
+            disabled={excelData.length === 0 || isSubmitting}
             style={{
-              opacity: excelData.length === 0 ? 0.5 : 1,
-              cursor: excelData.length === 0 ? "not-allowed" : "pointer",
+              opacity: excelData.length === 0 || isSubmitting ? 0.5 : 1,
+              cursor:
+                excelData.length === 0 || isSubmitting
+                  ? "not-allowed"
+                  : "pointer",
             }}
           >
-            Submit
+            {isSubmitting ? "Submitting..." : "Submit"}
           </button>
         </div>
         <div>

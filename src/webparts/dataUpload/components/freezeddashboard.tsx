@@ -16,7 +16,6 @@ import Right from "../assets/RightArrow.png";
 interface IData {
   Id: number;
   Username: string;
-  Department: string;
   VendorName: string;
   VendorCode: string;
   PONumber: string;
@@ -35,13 +34,11 @@ export default function freezeddashboard() {
   const [data, setData] = React.useState<IData[]>([]);
   const [isSearched, setIsSearched] = React.useState(false);
   const [userName, setUserName] = React.useState("");
-  const [department, setDepartment] = React.useState("");
   const [vendorName, setVendorName] = React.useState("");
   const [poNumber, setPoNumber] = React.useState("");
   const [fromDate, setFromDate] = React.useState("");
   const [toDate, setToDate] = React.useState("");
   const [userOptions, setUserOptions] = React.useState<string[]>([]);
-  const [deptOptions, setDeptOptions] = React.useState<string[]>([]);
   const [vendorOptions, setVendorOptions] = React.useState<string[]>([]);
   const [poOptions, setPoOptions] = React.useState<string[]>([]);
 
@@ -57,7 +54,6 @@ export default function freezeddashboard() {
   // SEARCH DATA
   const Reset = () => {
     setUserName("");
-    setDepartment("");
     setVendorName("");
     setPoNumber("");
     setFromDate("");
@@ -70,7 +66,7 @@ export default function freezeddashboard() {
     try {
       const items: any[] = await sp.web.lists
         .getByTitle("AccrualSheetList")
-        .items.select("Username", "Department", "VendorName", "PONumber")
+        .items.select("Username", "VendorName", "PONumber")
         .top(5000)();
 
       // ✅ FIXED unique function (NO Set, NO spread)
@@ -89,7 +85,6 @@ export default function freezeddashboard() {
       };
 
       setUserOptions(unique(items, "Username"));
-      setDeptOptions(unique(items, "Department"));
       setVendorOptions(unique(items, "VendorName"));
       setPoOptions(unique(items, "PONumber"));
     } catch (error) {
@@ -125,7 +120,6 @@ export default function freezeddashboard() {
      filter.push("Status eq 'Freez'")
   
       if (userName) filter.push(`substringof('${userName}', Username)`);
-      if (department) filter.push(`substringof('${department}', Department)`);
       if (vendorName) filter.push(`substringof('${vendorName}', VendorName)`);
       if (poNumber) filter.push(`substringof('${poNumber}', PONumber)`);
   
@@ -163,7 +157,6 @@ export default function freezeddashboard() {
     filter.push("DeleteFlag ne 1");
 
     if (userName) filter.push(`substringof('${userName}', Username)`);
-    if (department) filter.push(`substringof('${department}', Department)`);
     if (vendorName) filter.push(`substringof('${vendorName}', VendorName)`);
     if (poNumber) filter.push(`substringof('${poNumber}', PONumber)`);
 
@@ -196,7 +189,6 @@ export default function freezeddashboard() {
   const exportExcel = () => {
     const exportData = data.map((item: any) => ({
       UserName: item.Username,
-      Department: item.Department,
       VendorName: item.VendorName,
       VendorCode: item.VendorCode,
       PONumber: item.PONumber,
@@ -327,19 +319,6 @@ const formatMonth = (value: any) => {
           </select>
 
           <select
-            value={department}
-            className="form-control"
-            onChange={(e) => setDepartment(e.target.value)}
-          >
-            <option value="">All Departments</option>
-            {deptOptions.map((d, i) => (
-              <option key={i} value={d}>
-                {d}
-              </option>
-            ))}
-          </select>
-
-          <select
             value={vendorName}
             className="form-control"
             onChange={(e) => setVendorName(e.target.value)}
@@ -406,13 +385,13 @@ const formatMonth = (value: any) => {
                 >
                   <tr>
                     <th className="px-4 py-2">UserName</th>
-                    <th className="px-4 py-2">Department</th>
+                    <th className="px-4 py-2">Employee Cost Center</th>
+                    <th className="px-4 py-2">Employee Cost Center Name</th>
                     <th className="px-4 py-2">Vendor Name</th>
                     <th className="px-4 py-2">Vendor Code</th>
                     <th className="px-4 py-2">PO Number</th>
                     <th className="px-4 py-2">GL Code</th>
-                    <th className="px-4 py-2">Employee Cost Center</th>
-                    <th className="px-4 py-2">Employee Cost Center Name</th>
+                    <th className="px-4 py-2">GL Description</th>
                     <th className="px-4 py-2">Amount</th>
                     <th className="px-4 py-2">Expense Month</th>
                     <th className="px-4 py-2">Remarks</th>
@@ -422,13 +401,13 @@ const formatMonth = (value: any) => {
                   {paginatedData.map((item, index) => (
                     <tr key={index} className="border-t">
                       <td className="px-4 py-2">{item.Username}</td>
-                      <td className="px-4 py-2">{item.Department}</td>
+                      <td className="px-4 py-2">{item.EmployeeCostCenter}</td>
+                      <td className="px-4 py-2">{item.EmployeeCostCenterName}</td>
                       <td className="px-4 py-2">{item.VendorName}</td>
                       <td className="px-4 py-2">{item.VendorCode}</td>
                       <td className="px-4 py-2">{item.PONumber}</td>
                       <td className="px-4 py-2">{item.GLCode}</td>
                       <td className="px-4 py-2">{item.GLDescription}</td>
-                      <td className="px-4 py-2">{item.EmployeeCostCenter}</td>
                       <td className="px-4 py-2">{item.Amount}</td>
                       <td className="px-4 py-2">{formatMonth(item.ExpenseMonth)}</td>
 

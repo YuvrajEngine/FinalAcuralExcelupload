@@ -21,7 +21,6 @@ interface IData {
   Id: number;
   Username: string;
   Created: string;
-  Department: string;
   VendorName: string;
   VendorCode: string;
   PONumber: string;
@@ -35,6 +34,9 @@ interface IData {
   Status?: string;
 }
 
+const toUtcMidnight = (dateStr: string): Date =>
+  new Date(`${dateStr}T00:00:00.000Z`);
+
 export default function AdjustmentReport() {
   const [isPerformer, setIsPerformer] = React.useState(false);
   const [file, setFile] = React.useState<File | null>(null);
@@ -43,114 +45,106 @@ export default function AdjustmentReport() {
   const [closedMonths, setClosedMonths] = React.useState<string[]>([]);
   const [editingIds, setEditingIds] = useState<number[]>([]);
   const [userName, setUserName] = React.useState("");
-  const [department, setDepartment] = React.useState("");
   const [vendorName, setVendorName] = React.useState("");
   const [poNumber, setPoNumber] = React.useState("");
   const [fromDate, setFromDate] = React.useState("");
   const [toDate, setToDate] = React.useState("");
   const [userOptions, setUserOptions] = React.useState<string[]>([]);
-  const [deptOptions, setDeptOptions] = React.useState<string[]>([]);
   const [vendorOptions, setVendorOptions] = React.useState<string[]>([]);
   const [poOptions, setPoOptions] = React.useState<string[]>([]);
 
   const [filteredData, setFilteredData] = useState<any[]>([]);
 
-  // Pagination
   const itemsPerPage = 10;
   const [currentPage, setCurrentPage] = useState(1);
   const totalPages = Math.ceil(data.length / itemsPerPage);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
-  //const totalPages = Math.ceil(filteredData.length / itemsPerPage);
 
   const handleExit = () => {
-    //window.location.href = `${window.location.origin}/sites/SonaFinance/SitePages/Accuralsheet.aspx`;
     window.location.href = `https://sonacomstargroup.sharepoint.com/sites/RLY_Finance_UAT/SitePages/Accuralsheet.aspx`;
   };
 
   const searchData = async () => {
     let filter: string[] = [];
 
-    // ✅ Hide deleted
+    console.log("🔍 [searchData] Raw filter inputs:", {
+      userName: JSON.stringify(userName),
+      vendorName: JSON.stringify(vendorName),
+      poNumber: JSON.stringify(poNumber),
+      fromDate: JSON.stringify(fromDate),
+      toDate: JSON.stringify(toDate),
+    });
+
     filter.push("DeleteFlag ne 1");
 
-    // ✅ Only Pending
     filter.push("(Status eq 'Pending' or Status eq 'pending')");
 
-    // ✅ Text filters
     if (userName) filter.push(`substringof('${userName}', Username)`);
-    if (department) filter.push(`substringof('${department}', Department)`);
     if (vendorName) filter.push(`substringof('${vendorName}', VendorName)`);
     if (poNumber) filter.push(`substringof('${poNumber}', PONumber)`);
 
-    // ✅ Date filters
     if (fromDate) {
-      filter.push(`Created ge datetime'${new Date(fromDate).toISOString()}'`);
+      const from = toUtcMidnight(fromDate);
+      filter.push(`Created ge datetime'${from.toISOString()}'`);
     }
 
     if (toDate) {
-      const to = new Date(toDate);
-      to.setDate(to.getDate() + 1);
+      const to = toUtcMidnight(toDate);
+      to.setUTCDate(to.getUTCDate() + 1);
       filter.push(`Created lt datetime'${to.toISOString()}'`);
     }
 
     const query = filter.join(" and ");
 
+    console.log("🔍 [searchData] Filter clauses:", filter);
+    console.log("🔍 [searchData] Final OData $filter query:", query);
+
     try {
-      // ✅ STEP 1: GET MAIN DATA
       const items = await sp.web.lists
         .getByTitle("AccrualSheetList")
         .items.filter(query)
         .top(5000)();
 
+      console.log("🔍 [searchData] Rows returned by REST call:", items.length);
       console.log("All Items:", items);
 
-      // ✅ STEP 2: GET CLOSED MONTHS (Month + Year)
-      const closedItems = await sp.web.lists
-        .getByTitle("PerformerClosureAccess")
-        .items.select("Month", "DateofClosure")
-        .top(5000)();
+      if (items.length > 0) {
+        console.log(
+          "🔍 [searchData] Sample field values from first 5 rows:",
+          items.slice(0, 5).map((i: any) => ({
+            Username: JSON.stringify(i.Username),
+            VendorName: JSON.stringify(i.VendorName),
+            PONumber: JSON.stringify(i.PONumber),
+            Status: JSON.stringify(i.Status),
+            ExpenseMonth: JSON.stringify(i.ExpenseMonth),
+            Created: i.Created,
+          })),
+        );
+      } else {
+        console.log(
+          "🔍 [searchData] REST call returned ZERO rows — the $filter query itself excluded everything. " +
+            "Check the 'Final OData $filter query' log above.",
+        );
+      }
 
-      const closedMonths = closedItems.map((i: any) => {
-        const month = String(i.Month || "")
-          .trim()
-          .toLowerCase();
-        const year = i.DateofClosure
-          ? new Date(i.DateofClosure).getFullYear()
-          : "";
-
-        return `${month}-${year}`;
-      });
-
-      console.log("Closed Months:", closedMonths);
-
-      // ✅ STEP 3: FORMAT MONTH
       const formatMonth = (value: any) => {
         if (!value) return "";
         const str = String(value).trim().toLowerCase();
         return str.charAt(0).toUpperCase() + str.slice(1);
       };
 
-      // ✅ STEP 4: FINAL FILTER (FIXED)
       const filteredData = items
         .filter((item: any) => {
-          const month = String(item.ExpenseMonth || "")
-            .trim()
-            .toLowerCase();
-
-          // ✅ Use Created Year (or your custom Year field if exists)
-          const year = item.Created ? new Date(item.Created).getFullYear() : "";
-
-          const monthYear = `${month}-${year}`;
-
           const status = String(item.Status || "")
             .trim()
             .toLowerCase();
 
-          // ✅ Only Pending
-          if (status !== "pending") return false;
-
-          // ❌ Hide closed month-year only
-          if (closedMonths.includes(monthYear)) return false;
+          if (status !== "pending") {
+            console.log(
+              `🔍 [client filter] DROPPED row Id=${item.Id} (${item.Username}) — status was "${status}", expected "pending"`,
+            );
+            return false;
+          }
 
           return true;
         })
@@ -159,11 +153,15 @@ export default function AdjustmentReport() {
           ExpenseMonth: formatMonth(item.ExpenseMonth),
         }));
 
+      console.log(
+        "🔍 [searchData] Rows AFTER client-side status filter (no month-closure check):",
+        filteredData.length,
+      );
       console.log("Final Data:", filteredData);
 
       setIsSearched(true);
       setData(filteredData);
-      setFilteredData(filteredData); // ✅ for pagination
+      setFilteredData(filteredData);
     } catch (error) {
       console.error("Search Error:", error);
       alert("Error fetching data");
@@ -172,7 +170,7 @@ export default function AdjustmentReport() {
 
   const removeNewRow = (index: number) => {
     const updated = [...data];
-    updated.splice(index, 1); // remove row by index
+    updated.splice(index, 1);
     setData(updated);
   };
   const getClosureData = async () => {
@@ -245,7 +243,6 @@ export default function AdjustmentReport() {
       .items.select("Month", "DateofClosure")
       .top(5000)();
 
-    // ✅ Store Month + Year
     return items.map((i: any) => {
       const month = String(i.Month || "")
         .trim()
@@ -258,25 +255,15 @@ export default function AdjustmentReport() {
     });
   };
 
-  
   const searchData1 = async () => {
-    debugger;
-
     let filter: string[] = [];
 
-    // ✅ Default filters
     filter.push("DeleteFlag ne 1");
 
-    // ✅ SAFE STATUS FILTER (important fix)
     filter.push("(Status eq 'Pending' or Status eq 'pending')");
 
-    // ✅ Text filters
     if (userName && userName.trim() !== "") {
       filter.push(`substringof('${userName.trim()}', Username)`);
-    }
-
-    if (department && department.trim() !== "") {
-      filter.push(`substringof('${department.trim()}', Department)`);
     }
 
     if (vendorName && vendorName.trim() !== "") {
@@ -287,21 +274,20 @@ export default function AdjustmentReport() {
       filter.push(`substringof('${poNumber.trim()}', PONumber)`);
     }
 
-    // ✅ Date filters (FIXED)
-    if (fromDate && !isNaN(new Date(fromDate).getTime())) {
-      filter.push(`Created ge datetime'${new Date(fromDate).toISOString()}'`);
+    if (fromDate) {
+      const from = toUtcMidnight(fromDate);
+      filter.push(`Created ge datetime'${from.toISOString()}'`);
     }
 
-    if (toDate && !isNaN(new Date(toDate).getTime())) {
-      const to = new Date(toDate);
-      to.setDate(to.getDate() + 1); // ✅ IMPORTANT FIX
+    if (toDate) {
+      const to = toUtcMidnight(toDate);
+      to.setUTCDate(to.getUTCDate() + 1);
       filter.push(`Created lt datetime'${to.toISOString()}'`);
     }
 
     const query = filter.join(" and ");
 
     try {
-      // ✅ STEP 1: FETCH MAIN DATA
       const items = await sp.web.lists
         .getByTitle("AccrualSheetList")
         .items.filter(query)
@@ -309,7 +295,6 @@ export default function AdjustmentReport() {
 
       console.log("All Items:", items);
 
-      // ✅ STEP 2: FETCH CLOSED MONTHS
       const closedItems = await sp.web.lists
         .getByTitle("PerformerClosureAccess")
         .items.select("Month")
@@ -323,7 +308,6 @@ export default function AdjustmentReport() {
 
       console.log("Closed Months:", closedMonths);
 
-      // ✅ STEP 3: FORMAT MONTH (April)
       const formatMonth = (value: any) => {
         if (!value) return "";
 
@@ -331,7 +315,6 @@ export default function AdjustmentReport() {
         return str.charAt(0).toUpperCase() + str.slice(1);
       };
 
-      // ✅ STEP 4: FINAL FILTER LOGIC 🔥
       const filteredData = items
         .filter((item: any) => {
           const month = String(item.ExpenseMonth || "")
@@ -344,20 +327,17 @@ export default function AdjustmentReport() {
 
           console.log("Checking → Month:", month, "Status:", status);
 
-          // ✅ Ensure pending
           if (status !== "pending") return false;
 
-          // ❌ Hide closed months ONLY
           return !closedMonths.includes(month);
         })
         .map((item: any) => ({
           ...item,
-          ExpenseMonth: formatMonth(item.ExpenseMonth), // ✅ Show "April"
+          ExpenseMonth: formatMonth(item.ExpenseMonth),
         }));
 
       console.log("Final Data:", filteredData);
 
-      // ✅ SET DATA
       setIsSearched(true);
       setData(filteredData);
     } catch (error) {
@@ -369,160 +349,15 @@ export default function AdjustmentReport() {
   const formatMonth = (value: any) => {
     if (!value) return "";
 
-    // If it's a valid date → convert to month name
     const date = new Date(value);
     if (!isNaN(date.getTime())) {
       return date.toLocaleString("en-US", { month: "long" });
     }
 
-    // If already string → capitalize properly
     const str = String(value).trim().toLowerCase();
     return str.charAt(0).toUpperCase() + str.slice(1);
   };
 
-  // const saveAllRows = async () => {
-  //   const newRows = data.filter((item) => item.Id === 0);
-
-  //   if (newRows.length === 0) {
-  //     alert("No new rows to save");
-  //     return;
-  //   }
-
-  //   // ✅ Helper: month name → number
-  //   const getMonthNumber = (monthName: string) => {
-  //     const months: any = {
-  //       january: 0,
-  //       february: 1,
-  //       march: 2,
-  //       april: 3,
-  //       may: 4,
-  //       june: 5,
-  //       july: 6,
-  //       august: 7,
-  //       september: 8,
-  //       october: 9,
-  //       november: 10,
-  //       december: 11,
-  //     };
-  //     return months[monthName.toLowerCase()];
-  //   };
-
-  //   const today = new Date();
-  //   const currentMonth = today.getMonth();
-  //   const currentYear = today.getFullYear();
-  //   const currentDate = today.getDate();
-
-  //   let skippedUsers: string[] = [];
-
-  //   try {
-  //     for (const item of newRows) {
-  //       const username = item.Username || "Unknown";
-
-  //       // ✅ Required validation
-  //       if (
-  //         !item.Username ||
-  //         !item.Department ||
-  //         !item.VendorName ||
-  //         !item.VendorCode ||
-  //         !item.PONumber ||
-  //         !item.GLCode ||
-  //         !item.GLDescription ||
-  //         !item.EmployeeCostCenter ||
-  //         !item.EmployeeCostCenterName ||
-  //         !item.Amount ||
-  //         !item.ExpenseMonth ||
-  //         !item.Remarks
-  //       ) {
-  //         alert("All fields are mandatory");
-  //         return;
-  //       }
-
-  //       // ✅ Amount validation
-  //       if (isNaN(Number(item.Amount))) {
-  //         alert("Amount must be numeric");
-  //         return;
-  //       }
-
-  //       // ✅ Month validation
-  //       const expenseMonthStr = String(item.ExpenseMonth).trim().toLowerCase();
-
-  //       const expMonth = getMonthNumber(expenseMonthStr);
-
-  //       if (expMonth === undefined) {
-  //         skippedUsers.push(username);
-  //         continue;
-  //       }
-
-  //       const expYear = currentYear;
-  //       let isValid = false;
-
-  //       // ✅ Current month
-  //       if (expMonth === currentMonth) {
-  //         isValid = true;
-  //       }
-
-  //       // ✅ Previous month till 5th
-  //       const prevMonth = currentMonth === 0 ? 11 : currentMonth - 1;
-  //       const prevYear = currentMonth === 0 ? currentYear - 1 : currentYear;
-
-  //       if (
-  //         expMonth === prevMonth &&
-  //         expYear === prevYear &&
-  //         currentDate <= 5
-  //       ) {
-  //         isValid = true;
-  //       }
-
-  //       // ✅ NEW: Allow future months
-  //       if (expMonth > currentMonth) {
-  //         isValid = true;
-  //       }
-
-  //       // ❌ Skip invalid
-  //       if (!isValid) {
-  //         skippedUsers.push(username);
-  //         continue;
-  //       }
-
-  //       // ✅ Insert
-  //       await sp.web.lists.getByTitle("AccrualSheetList").items.add({
-  //         Username: item.Username,
-  //         Department: item.Department,
-  //         VendorName: item.VendorName,
-  //         VendorCode: item.VendorCode,
-  //         PONumber: item.PONumber,
-  //         GLCode: item.GLCode,
-  //         GLDescription: item.GLDescription,
-  //         EmployeeCostCenter: item.EmployeeCostCenter,
-  //         EmployeeCostCenterName: item.EmployeeCostCenterName,
-  //         Amount: Number(item.Amount),
-  //         ExpenseMonth: expenseMonthStr,
-  //         Remarks: item.Remarks,
-  //         DeleteFlag: false,
-  //         Status: "Pending",
-  //       });
-  //     }
-
-  //     // ✅ Remove duplicate usernames (ES5 safe)
-  //     const uniqueSkippedUsers = skippedUsers.filter((item, index) => {
-  //       return skippedUsers.indexOf(item) === index;
-  //     });
-
-  //     // ✅ Final message
-  //     if (uniqueSkippedUsers.length > 0) {
-  //       alert(
-  //         `Upload complete ✅\nSkipped users: ${uniqueSkippedUsers.join(", ")}`,
-  //       );
-  //     } else {
-  //       alert("All records saved successfully ✅");
-  //     }
-
-  //     void searchData();
-  //   } catch (error) {
-  //     console.log("Bulk save error:", error);
-  //     alert("Error saving records");
-  //   }
-  // };
   const saveAllRows = async () => {
     const newRows = data.filter((item) => item.Id === 0);
 
@@ -559,18 +394,13 @@ export default function AdjustmentReport() {
     const currentDate = today.getDate();
 
     let errorList: string[] = [];
-    let errorRows: any[] = []; // ✅ store full row
+    let errorRows: any[] = [];
 
-    // ===============================
-    // ✅ STEP 1: VALIDATE ALL ROWS
-    // ===============================
     for (const item of newRows) {
       const username = item.Username || "Unknown";
 
-      // Required validation
       if (
         !item.Username ||
-        !item.Department ||
         !item.VendorName ||
         !item.VendorCode ||
         !item.PONumber ||
@@ -579,15 +409,13 @@ export default function AdjustmentReport() {
         !item.EmployeeCostCenter ||
         !item.EmployeeCostCenterName ||
         !item.Amount ||
-        !item.ExpenseMonth ||
-        !item.Remarks
+        !item.ExpenseMonth
       ) {
         errorList.push(`${username} → Missing required fields`);
         errorRows.push(item);
         continue;
       }
 
-      // Amount validation
       if (isNaN(Number(item.Amount))) {
         errorList.push(`${username} → Amount must be numeric`);
         errorRows.push(item);
@@ -600,7 +428,6 @@ export default function AdjustmentReport() {
         continue;
       }
 
-      // Month validation
       const expenseMonthStr = String(item.ExpenseMonth || "")
         .trim()
         .toLowerCase();
@@ -615,24 +442,20 @@ export default function AdjustmentReport() {
 
       let isValid = false;
 
-      // ✅ Current month
       if (expMonth === currentMonth) {
         isValid = true;
       }
 
-      // ✅ Previous month till 5th
       const prevMonth = currentMonth === 0 ? 11 : currentMonth - 1;
 
       if (expMonth === prevMonth && currentDate <= 5) {
         isValid = true;
       }
 
-      // ✅ Future month
       if (expMonth > currentMonth) {
         isValid = true;
       }
 
-      // ❌ Past month
       if (!isValid) {
         errorList.push(
           `${username}-${expenseMonthStr} → Past month not allowed`,
@@ -641,16 +464,12 @@ export default function AdjustmentReport() {
       }
     }
 
-    // ===============================
-    // ❌ STEP 2: STOP IF ERROR
-    // ===============================
     if (errorList.length > 0) {
       alert(
         "❌ Some records are invalid. Nothing saved.\n\n" +
           errorList.join("\n"),
       );
 
-      // ✅ SHOW ERROR ROWS IN GRID
       setData(errorRows);
       setFilteredData(errorRows);
       setIsSearched(true);
@@ -658,9 +477,6 @@ export default function AdjustmentReport() {
       return;
     }
 
-    // ===============================
-    // ✅ STEP 3: SAVE ALL ROWS
-    // ===============================
     try {
       for (const item of newRows) {
         const expenseMonthStr = capitalizeMonth(item.ExpenseMonth);
@@ -669,7 +485,6 @@ export default function AdjustmentReport() {
           Title: String(item.Username || ""),
 
           Username: String(item.Username || ""),
-          Department: String(item.Department || ""),
           VendorName: String(item.VendorName || ""),
           VendorCode: String(item.VendorCode || ""),
           PONumber: String(item.PONumber || ""),
@@ -679,7 +494,6 @@ export default function AdjustmentReport() {
           EmployeeCostCenterName: String(item.EmployeeCostCenterName || ""),
           Amount: Number(item.Amount || 0),
 
-          // ✅ IMPORTANT (fix SharePoint error)
           ExpenseMonth: expenseMonthStr,
 
           Remarks: String(item.Remarks || ""),
@@ -690,12 +504,10 @@ export default function AdjustmentReport() {
 
       alert("All records saved successfully ✅");
 
-      // ✅ Clear error grid
       setData([]);
       setFilteredData([]);
       setIsSearched(false);
 
-      // Reload
       void searchData();
     } catch (error) {
       console.log("Bulk save error:", error);
@@ -703,15 +515,16 @@ export default function AdjustmentReport() {
     }
   };
 
-  // SEARCH DATA
   const loadDropdownData = async () => {
     try {
       const items: any[] = await sp.web.lists
         .getByTitle("AccrualSheetList")
-        .items.select("Username", "Department", "VendorName", "PONumber")
+        .items.select("Username", "VendorName", "PONumber")
+        .filter(
+          "DeleteFlag ne 1 and (Status eq 'Pending' or Status eq 'pending')",
+        )
         .top(5000)();
 
-      // ✅ FIXED unique function (NO Set, NO spread)
       const unique = (arr: any[], key: string) => {
         const result: string[] = [];
 
@@ -727,7 +540,6 @@ export default function AdjustmentReport() {
       };
 
       setUserOptions(unique(items, "Username"));
-      setDeptOptions(unique(items, "Department"));
       setVendorOptions(unique(items, "VendorName"));
       setPoOptions(unique(items, "PONumber"));
     } catch (error) {
@@ -742,7 +554,6 @@ export default function AdjustmentReport() {
     }
 
     try {
-      // Filter only Pending records
       const pendingItems = data.filter((item) => item.Status === "Pending");
 
       if (pendingItems.length === 0) {
@@ -750,7 +561,6 @@ export default function AdjustmentReport() {
         return;
       }
 
-      // 🔁 Update all pending items
       for (const item of pendingItems) {
         await sp.web.lists
           .getByTitle("AccrualSheetList")
@@ -762,8 +572,7 @@ export default function AdjustmentReport() {
 
       alert("Records freeze successfully ✅");
 
-      // 🔄 Refresh data
-      void searchData(); // or your fetch function
+      void searchData();
     } catch (error) {
       console.log("Freeze error:", error);
       alert("Error freezing records");
@@ -797,7 +606,6 @@ export default function AdjustmentReport() {
   const exportExcel = () => {
     const exportData = data.map((item: any) => ({
       UserName: item.Username,
-      Department: item.Department,
       VendorName: item.VendorName,
       VendorCode: item.VendorCode,
       PONumber: item.PONumber,
@@ -829,14 +637,11 @@ export default function AdjustmentReport() {
     saveAs(blob, "Accrual_Report.xlsx");
   };
 
-  // DELETE ROW
   const deleteItem = async (id: number) => {
-    // ✅ Confirmation popup
     const confirmDelete = window.confirm(
       "Are you sure you want to delete the data?",
     );
 
-    // ❌ If user clicks Cancel → stop
     if (!confirmDelete) {
       return;
     }
@@ -849,7 +654,6 @@ export default function AdjustmentReport() {
           DeleteFlag: true,
         });
 
-      // ✅ Success message
       alert("Data deleted successfully");
 
       void searchData();
@@ -864,7 +668,6 @@ export default function AdjustmentReport() {
       Id: 0,
       Username: "",
       Created: "",
-      Department: "",
       VendorName: "",
       VendorCode: "",
       PONumber: "",
@@ -881,15 +684,12 @@ export default function AdjustmentReport() {
 
     setData(updated);
 
-    // Move to last page
     setCurrentPage(Math.ceil(updated.length / itemsPerPage));
   };
 
   const saveRow = async (item: IData) => {
-    // Validation
     if (
       !item.Username ||
-      !item.Department ||
       !item.VendorName ||
       !item.VendorCode ||
       !item.PONumber ||
@@ -898,8 +698,7 @@ export default function AdjustmentReport() {
       !item.EmployeeCostCenter ||
       !item.EmployeeCostCenterName ||
       !item.Amount ||
-      !item.ExpenseMonth ||
-      !item.Remarks
+      !item.ExpenseMonth
     ) {
       alert("All fields are mandatory");
       return;
@@ -912,7 +711,6 @@ export default function AdjustmentReport() {
 
     await sp.web.lists.getByTitle("AccrualSheetList").items.add({
       Username: item.Username,
-      Department: item.Department,
       VendorName: item.VendorName,
       VendorCode: item.VendorCode,
       PONumber: item.PONumber,
@@ -934,7 +732,6 @@ export default function AdjustmentReport() {
 
   const Reset = () => {
     setUserName("");
-    setDepartment("");
     setVendorName("");
     setPoNumber("");
     setFromDate("");
@@ -949,7 +746,6 @@ export default function AdjustmentReport() {
       setCurrentPage(page);
     }
   };
-  // const sortedData = [...filteredData].sort((a, b) => b.Id - a.Id);
 
   const paginatedData = data.slice(
     (currentPage - 1) * itemsPerPage,
@@ -959,10 +755,8 @@ export default function AdjustmentReport() {
   React.useEffect(() => {
     void checkUserAccess();
     void loadDropdownData();
-    void getClosedMonths(); // 👈 ADD THIS
   }, []);
 
-  
   return (
     <div>
       <div className="header">
@@ -979,19 +773,6 @@ export default function AdjustmentReport() {
             {userOptions.map((u, i) => (
               <option key={i} value={u}>
                 {u}
-              </option>
-            ))}
-          </select>
-
-          <select
-            value={department}
-            className="form-control"
-            onChange={(e) => setDepartment(e.target.value)}
-          >
-            <option value="">All Departments</option>
-            {deptOptions.map((d, i) => (
-              <option key={i} value={d}>
-                {d}
               </option>
             ))}
           </select>
@@ -1080,17 +861,15 @@ export default function AdjustmentReport() {
                         }}
                       />
                     </th>
-                    {/* <th>Select</th> */}
                     <th className="px-4 py-2">Created Date</th>
                     <th className="px-4 py-2">UserName</th>
-                    <th className="px-4 py-2">Department</th>
+                    <th className="px-4 py-2">Employee Cost Center</th>
+                    <th className="px-4 py-2">Employee Cost Center Name</th>
                     <th className="px-4 py-2">Vendor Name</th>
                     <th className="px-4 py-2">Vendor Code</th>
                     <th className="px-4 py-2">PO Number</th>
                     <th className="px-4 py-2">GL Code</th>
                     <th className="px-4 py-2">GL Description</th>
-                    <th className="px-4 py-2">Employee Cost Center</th>
-                    <th className="px-4 py-2">Employee Cost Center Name</th>
                     <th className="px-4 py-2">Amount</th>
                     <th className="px-4 py-2">Expense Month</th>
                     <th className="px-4 py-2">Remarks</th>
@@ -1101,7 +880,7 @@ export default function AdjustmentReport() {
                 <tbody>
                   {paginatedData.length === 0 ? (
                     <tr>
-                      <td colSpan={14} style={{ textAlign: "center" }}>
+                      <td colSpan={13} style={{ textAlign: "center" }}>
                         No Records Found
                       </td>
                     </tr>
@@ -1113,7 +892,6 @@ export default function AdjustmentReport() {
 
                         return (
                           <tr key={item.Id || actualIndex}>
-                            {/* Username */}
                             <td>
                               {item.Id !== 0 && (
                                 <input
@@ -1133,7 +911,6 @@ export default function AdjustmentReport() {
                                 />
                               )}
                             </td>
-                            {/* <td>{item.Created}</td> */}
 
                             <td>
                               {item.Created
@@ -1159,130 +936,6 @@ export default function AdjustmentReport() {
                               )}
                             </td>
 
-                            {/* Department */}
-                            <td>
-                              {item.Id === 0 ? (
-                                <input
-                                  value={item.Department}
-                                  onChange={(e) =>
-                                    updateRow(
-                                      actualIndex,
-                                      "Department",
-                                      e.target.value,
-                                    )
-                                  }
-                                />
-                              ) : (
-                                item.Department
-                              )}
-                            </td>
-
-                            {/* Vendor */}
-                            <td>
-                              {item.Id === 0 ? (
-                                <input
-                                  value={item.VendorName}
-                                  onChange={(e) =>
-                                    updateRow(
-                                      actualIndex,
-                                      "VendorName",
-                                      e.target.value,
-                                    )
-                                  }
-                                />
-                              ) : (
-                                item.VendorName
-                              )}
-                            </td>
-
-                            {/* Vendor Code */}
-                            <td>
-                              {item.Id === 0 ? (
-                                <input
-                                  value={item.VendorCode}
-                                  onChange={(e) =>
-                                    updateRow(
-                                      actualIndex,
-                                      "VendorCode",
-                                      e.target.value,
-                                    )
-                                  }
-                                />
-                              ) : (
-                                item.VendorCode
-                              )}
-                            </td>
-
-                            {/* PO */}
-                            <td>
-                              {item.Id === 0 ? (
-                                <input
-                                  value={item.PONumber}
-                                  onChange={(e) =>
-                                    updateRow(
-                                      actualIndex,
-                                      "PONumber",
-                                      e.target.value,
-                                    )
-                                  }
-                                />
-                              ) : (
-                                item.PONumber
-                              )}
-                            </td>
-
-                            {/* GL Code */}
-                            {/* <td>
-                              {item.Id === 0 ? (
-                                <input
-                                  value={item.GLCode}
-                                  onChange={(e) =>
-                                    updateRow(
-                                      actualIndex,
-                                      "GLCode",
-                                      e.target.value,
-                                    )
-                                  }
-                                />
-                              ) : (
-                                item.GLCode
-                              )}
-                            </td> */}
-                            <td>
-                              <input
-                                value={item.GLCode || ""}
-                                onChange={(e) =>
-                                  updateRow(
-                                    actualIndex,
-                                    "GLCode",
-                                    e.target.value,
-                                  )
-                                }
-                                disabled={
-                                  item.Id !== 0 && !editingIds.includes(item.Id)
-                                }
-                              />
-                            </td>
-
-                            {/* GL Desc */}
-                            <td>
-                              {item.Id === 0 ? (
-                                <input
-                                  value={item.GLDescription}
-                                  onChange={(e) =>
-                                    updateRow(
-                                      actualIndex,
-                                      "GLDescription",
-                                      e.target.value,
-                                    )
-                                  }
-                                />
-                              ) : (
-                                item.GLDescription
-                              )}
-                            </td>
-
-                            {/* Cost Center */}
                             <td>
                               {item.Id === 0 ? (
                                 <input
@@ -1300,7 +953,6 @@ export default function AdjustmentReport() {
                               )}
                             </td>
 
-                            {/* Cost Center Name */}
                             <td>
                               {item.Id === 0 ? (
                                 <input
@@ -1318,25 +970,105 @@ export default function AdjustmentReport() {
                               )}
                             </td>
 
-                            {/* Amount */}
                             <td>
                               {item.Id === 0 ? (
-                                // ✅ Editable for NEW ROW only
+                                <input
+                                  value={item.VendorName}
+                                  onChange={(e) =>
+                                    updateRow(
+                                      actualIndex,
+                                      "VendorName",
+                                      e.target.value,
+                                    )
+                                  }
+                                />
+                              ) : (
+                                item.VendorName
+                              )}
+                            </td>
+
+                            <td>
+                              {item.Id === 0 ? (
+                                <input
+                                  value={item.VendorCode}
+                                  onChange={(e) =>
+                                    updateRow(
+                                      actualIndex,
+                                      "VendorCode",
+                                      e.target.value,
+                                    )
+                                  }
+                                />
+                              ) : (
+                                item.VendorCode
+                              )}
+                            </td>
+
+                            <td>
+                              {item.Id === 0 ? (
+                                <input
+                                  value={item.PONumber}
+                                  onChange={(e) =>
+                                    updateRow(
+                                      actualIndex,
+                                      "PONumber",
+                                      e.target.value,
+                                    )
+                                  }
+                                />
+                              ) : (
+                                item.PONumber
+                              )}
+                            </td>
+
+                            <td>
+                              <input
+                                value={item.GLCode || ""}
+                                onChange={(e) =>
+                                  updateRow(
+                                    actualIndex,
+                                    "GLCode",
+                                    e.target.value,
+                                  )
+                                }
+                                disabled={
+                                  item.Id !== 0 && !editingIds.includes(item.Id)
+                                }
+                              />
+                            </td>
+
+                            <td>
+                              {item.Id === 0 ? (
+                                <input
+                                  value={item.GLDescription}
+                                  onChange={(e) =>
+                                    updateRow(
+                                      actualIndex,
+                                      "GLDescription",
+                                      e.target.value,
+                                    )
+                                  }
+                                />
+                              ) : (
+                                item.GLDescription
+                              )}
+                            </td>
+
+                            <td>
+                              {item.Id === 0 ? (
                                 <input
                                   type="number"
                                   value={item.Amount}
-                                  min="0" // ❌ prevents negative from UI
+                                  min="0"
                                   onChange={(e) => {
                                     const val = Number(e.target.value);
 
-                                    // ❌ extra validation (important)
                                     if (val < 0) return;
 
                                     updateRow(actualIndex, "Amount", val);
                                   }}
                                 />
                               ) : (
-                                // ✅ Readonly for SEARCH data
                                 <input
                                   type="number"
                                   value={item.Amount}
@@ -1345,7 +1077,6 @@ export default function AdjustmentReport() {
                               )}
                             </td>
 
-                            {/* Month */}
                             <td>
                               {item.Id === 0 ? (
                                 <input
@@ -1363,7 +1094,6 @@ export default function AdjustmentReport() {
                               )}
                             </td>
 
-                            {/* Remarks */}
                             <td>
                               {item.Id === 0 ? (
                                 <input
@@ -1381,7 +1111,6 @@ export default function AdjustmentReport() {
                               )}
                             </td>
 
-                            {/* Delete */}
                             <td>
                               {item.Id === 0 ? (
                                 <button
@@ -1423,9 +1152,8 @@ export default function AdjustmentReport() {
                         );
                       })}
 
-                      {/* Add Row Buttons */}
                       <tr>
-                        <td colSpan={12}></td>
+                        <td colSpan={11}></td>
                         {isPerformer && (
                           <>
                             <td>
@@ -1456,13 +1184,11 @@ export default function AdjustmentReport() {
                 Delete Selected
               </button>
             )}
-            {/* Pagination */}
             <div className="flex justify-center mt-6 overflow-x-auto">
               <div
                 className="flex space-x-2 flex-nowrap px-4 py-2 bg-#2149d5 rounded shadow"
                 style={{ textAlign: "end" }}
               >
-                {/* Previous Button */}
                 <button
                   onClick={() => handlePageChange(currentPage - 1)}
                   disabled={currentPage === 1}
@@ -1476,7 +1202,6 @@ export default function AdjustmentReport() {
                 >
                   <img src={Left} alt="" width={15} />
                 </button>
-                {/* Main Page Numbers */}
                 {Array.from({ length: totalPages }, (_, i) => i + 1)
                   .filter((page) => Math.abs(page - currentPage) <= 2)
                   .map((page) => (
@@ -1496,7 +1221,6 @@ export default function AdjustmentReport() {
                     </button>
                   ))}
 
-                {/* Next Button */}
                 <button
                   onClick={() => handlePageChange(currentPage + 1)}
                   disabled={currentPage === totalPages}
@@ -1526,18 +1250,6 @@ export default function AdjustmentReport() {
                   alignItems: "center",
                 }}
               >
-                {/* <div>
-                  <label>Select Excel File</label>
-                  <input
-                    type="file"
-                    accept=".xlsx"
-                    onChange={(e) => {
-                      if (e.target.files && e.target.files.length > 0) {
-                        setFile(e.target.files[0]);
-                      }
-                    }}
-                  />
-                </div> */}
                 <div>
                   <button
                     className="primaryBtn"
